@@ -1,0 +1,166 @@
+---
+title: "Practical Machine Learning Project"
+author: "Komal"
+date: "September 30, 2016"
+output: 
+  html_document: 
+  fig_height: 4
+highlight: pygments
+theme: spacelab
+---
+
+### Load packages
+  
+```{r load-packages, message = FALSE}
+library(AppliedPredictiveModeling)     
+library(caret)     
+library(e1071)     
+library(data.table)     
+library(readr)     
+```
+
+* * *
+  
+## Project Introduction
+**Background**   
+Personal activity data can now be collected using devices such as Jawbone Up, Nike FuelBand, and Fitbit on a large amount inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise   Dataset).     
+
+**Data**  
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.        
+
+**Goal**     
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.       
+
+* * *
+  
+## Gettind and Loading the Data
+
+```{r load-data}
+training <- read.csv("D:/BI/Coursera/Courses/10PracticalMachineLearning/pml-training.csv")
+testing <- read.csv("D:/BI/Coursera/Courses/10PracticalMachineLearning/pml-testing.csv")
+dim(training)
+dim(testing)
+head(training$classe)
+prop.table(table(training$classe))*100
+str(training)
+
+```
+
+
+* * *
+  
+## Cleaning Data
+
+```{r clean-data}
+# Set seed
+set.seed(227)
+```
+
+Remove variables having high missing percentage (50%)
+```{r}
+training <- training[, colMeans(is.na(training)) <= .5]
+dim(training)
+```
+
+Remove Zero and Near Zero-Variance Predictors
+```{r}
+nzv.result <- nearZeroVar(training)
+training2 <- training[, -nzv.result]
+dim(training2)
+```
+
+Identifying numeric variables
+```{r}
+numericData <- training2[sapply(training2, is.numeric)]
+```
+
+Calculate correlation matrix
+```{r}
+descrCor <- cor(numericData)
+```
+
+Check Correlation Plot
+```{r}
+library(corrplot)
+corrplot(descrCor, order = "FPC", method = "color", type = "lower", tl.cex = 0.7, tl.col = rgb(0, 0, 0))
+```
+
+Find attributes that are highly corrected
+```{r}
+highlyCorrelated <- findCorrelation(descrCor, cutoff=0.7)
+print(highlyCorrelated)
+highlyCorCol <- colnames(numericData)[highlyCorrelated]
+highlyCorCol
+```
+
+Remove highly correlated variables and create a new dataset
+```{r}
+training3 <- training2[, -which(colnames(training2) %in% highlyCorCol)]
+dim(training3)
+
+```
+
+* * *
+  
+## Model Building and Evaluation
+```{r}
+training4 <- training3[,c(-1,-36)]
+names(training4)
+testing4 <- testing[,colnames(training4)]
+names(testing4)
+names(training3)
+
+training3 <- training3[,-1]
+
+## CROSS VALIDATION - RANDOM SAMPLING W/O REPLACEMENT
+# split training set into sub-training/test sets
+inTrain <- createDataPartition(y=training3$classe,p=0.60, list=FALSE)
+sub_training <- training3[inTrain,]
+sub_testing <- training3[-inTrain,]
+
+#SVM
+svm.result <- train(classe~., data = sub_training,method = "svmLinear")
+predictions <- predict(svm.result, sub_testing)
+confusionMatrix(sub_testing$classe,predictions)
+
+# evaluate model on test data
+predictions2 <- predict(svm.result,testing4)
+predictions2
+
+#CART
+rf.result<-train(classe~., data = sub_training, method = "rpart")
+predictions <- predict(rf.result, sub_testing)
+confusionMatrix(sub_testing$classe,predictions)
+
+# evaluate model on test data
+predictions2 <- predict(rf.result,testing4)
+predictions2
+
+#GBM
+set.seed(12345)
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 1)
+
+gbmFit1 <- train(classe ~ ., data=sub_training, method = "gbm",
+                 trControl = fitControl,
+                 verbose = FALSE)
+
+
+gbmFinMod1 <- gbmFit1$finalModel
+
+gbmPredTest <- predict(gbmFit1, newdata=sub_testing)
+gbmAccuracyTest <- confusionMatrix(sub_testing$classe,gbmPredTest)
+gbmAccuracyTest
+predictions2 <- predict(gbmFit1,testing4)
+predictions2
+
+```
+
+* * *
+
+## Conclusion
+
+We have built a model to predict exercise form based on movement data. We estimate the out of sample error to be .2% (1 - testing accuracy)(for GBM). This is a promising result regarding the use of machine learning to detect bad exercise form. It must be noted that what we are truly predicting here is that which of 5 predetermined supervised movements a subject is performing. So, although we estimate a very low out of sample error, we can expect the error of predicting bad form in real life situations to be higher.
